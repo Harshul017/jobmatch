@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jobmatch"
+version = "0.1.0"
+description = "A job-matching agent over a live index of real job listings"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+include = ["jobmatch*"]
+
+[tool.pytest.ini_options]
+# Without this, `pytest` (unlike `python -m pytest`) does not put the project
+# root on sys.path and every `from jobmatch import ...` fails to import.
+pythonpath = ["."]
+testpaths = ["tests"]

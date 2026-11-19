@@ -1,0 +1,35 @@
+# One query per line. These are the questions the evaluation is scored on,
+# so write them the way a real person would type them, not as keyword lists.
+# Mix literal-keyword queries (where BM25 should win) with paraphrases
+# (where embeddings should win) - that is what makes the comparison informative.
+
+backend engineer working on search and ranking
+build LLM agents that use tools
+semantic search over documents with embeddings
+machine learning infrastructure for large scale training
+python backend engineer in bengaluru
+remote data engineering role building pipelines
+software engineering internship in india
+distributed systems engineer working on databases
+recommendation systems and personalisation
+vector database and retrieval engineering
+new grad software engineer role
+frontend engineer react typescript
+devops kubernetes terraform cloud infrastructure
+security engineer application security
+RAG pipelines and document question answering
+natural language processing research
+site reliability engineering on-call production
+engineer who works with kafka and streaming data
+full stack developer node and postgres
+computer vision and image models
+data scientist experimentation and a/b testing
+platform engineering developer tools and internal tooling
+fintech payments backend engineering
+graduate role for someone with no industry experience
+staff level engineer owning technical direction
+engineer working on developer productivity
+roles involving prompt engineering and model evaluation
+golang microservices backend
+mobile engineer android kotlin
+analytics engineer sql and dbt

@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+
+# Generated data: rebuildable from the sources, and large.
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.npz
+data/qdrant/
+data/slugs.json
+
+# Planning notes: personal, not part of the project
+task.md
+.gitmessage

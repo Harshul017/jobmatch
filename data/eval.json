@@ -1,0 +1,51 @@
+{
+  "queries": [
+    {
+      "query": "backend engineer working on search and ranking",
+      "relevant": [
+        "2d81895245bf4dc6",
+        "e963af406bf89c69",
+        "ddd94282fa32df1d",
+        "47fd5977b9f2d369",
+        "5ea347ab393ae8aa",
+        "55a8aa54b53f2090"
+      ],
+      "judged": [
+        "18dac2f23f257d5b",
+        "5a3a00d88011201d",
+        "dd55a5c6c5124afe",
+        "e58fc4a5d6e9db75",
+        "ad262f29ebcbb24d",
+        "74be9d1fe27072c1",
+        "c81f2ddee7af1bdc",
+        "b0e666d849c8cfff",
+        "d5671c1e7ea2c0b7",
+        "b463146a0e7e767d",
+        "4db7bae9bfc0ff02",
+        "9ea0f79e8854af2c",
+        "41852bc59048cdaa",
+        "fb83b4c3c7931e5e",
+        "fa7512d835ad59e3",
+        "261c10328f0cc237",
+        "ea369276b1c7ce3b",
+        "2d81895245bf4dc6",
+        "e963af406bf89c69",
+        "ddd94282fa32df1d",
+        "47fd5977b9f2d369",
+        "5ea347ab393ae8aa",
+        "55a8aa54b53f2090",
+        "036785946a8bfbea",
+        "78a508fdae384587",
+        "644cadbc53b652f3"
+      ],
+      "relevant_titles": [
+        "Senior/Staff Software Engineer, Search & Retrieval Infrastructure @ Pinecone",
+        "Member of Technical Staff (Index, Search Crawler) @ Perplexity",
+        "Member of Technical Staff (Backend/Infrastructure Engineer, Search) @ Perplexity",
+        "Member of Technical Staff (Search Engine Developer, Search Core) @ Perplexity",
+        "Senior Staff Software Engineer- Search Quality @ Databricks",
+        "Senior Software Engineer \u2014 Infra Agent Systems @ Together AI"
+      ]
+    }
+  ]
+}

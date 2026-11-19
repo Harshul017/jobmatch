@@ -1,0 +1,88 @@
+# One company per line. The resolver probes Greenhouse, Lever and Ashby for each.
+# Not all of these will have a public board - that is expected and fine.
+# If a name fails but you know the careers page, paste the URL here instead.
+# Edit freely: this list decides what your index contains.
+
+# --- Indian product companies and startups ---
+Razorpay
+Zerodha
+CRED
+Meesho
+Groww
+Postman
+Hasura
+Atlan
+BrowserStack
+Freshworks
+Zoho
+Swiggy
+Zomato
+PhonePe
+Dream11
+InVideo
+Chargebee
+Darwinbox
+Khatabook
+Jupiter Money
+Slice
+Navi
+Rapido
+Porter
+Zepto
+Juspay
+Setu
+Signzy
+Locus
+Sprinto
+Scaler
+Newton School
+Turing
+Clevertap
+MoEngage
+Whatfix
+Kissflow
+Uniphore
+Observe AI
+Gupshup
+
+# --- International, hire remotely or in India ---
+Stripe
+Figma
+Notion
+Linear
+Vercel
+Supabase
+Airbnb
+Dropbox
+Cloudflare
+DigitalOcean
+Elastic
+MongoDB
+Confluent
+Databricks
+Snowflake
+Datadog
+GitLab
+HashiCorp
+Twilio
+Segment
+Algolia
+Pinecone
+Weaviate
+LangChain
+Hugging Face
+Scale AI
+Anyscale
+Modal
+Replicate
+Together AI
+Perplexity
+Ramp
+Retool
+Deel
+Remote
+Discord
+Reddit
+Coinbase
+Robinhood
+Instacart
