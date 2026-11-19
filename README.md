@@ -129,6 +129,27 @@ Small models misbehave in predictable ways, so the loop assumes they will:
 
 Swapping the model is a flag; swapping the provider is one class in `llm.py`.
 
+## API
+
+```bash
+uvicorn jobmatch.api:app --reload
+curl "localhost:8000/search?q=backend+engineer&location=india&exclude_seniority=senior"
+curl -X POST localhost:8000/chat -H 'content-type: application/json' \
+     -d '{"message": "remote ML roles in india"}'
+```
+
+`/health` is readiness, not liveness: an instance with an empty index is up
+but cannot answer anything, so it returns 503 rather than looking healthy to
+a load balancer.
+
+```bash
+docker build -t jobmatch .
+docker run -p 8000:8000 -v $(pwd)/data:/app/data --env-file .env jobmatch
+```
+
+The index is mounted rather than baked into the image. It goes stale, and it
+is much larger than the code.
+
 ## Evaluation
 
 ```bash
@@ -141,13 +162,26 @@ advance, so candidates are pooled: the union of what each mode returns,
 shuffled before display. Anything outside the pool counts as non-relevant,
 which is the usual limitation of pooled judgements.
 
+Retrieval metrics say nothing about whether the agent called the right tool,
+honoured a constraint, or made a job up, so the agent is scored separately:
+
+```bash
+python -m jobmatch.eval_agent
+```
+
+Each scenario asserts behaviour that has to hold however the model words its
+answer — searched before answering, cited only retrieved jobs, returned no
+senior roles when asked for none, saved a preference only when told one. It
+reports grounding rate, fallback rate, invalid tool calls and tool calls per
+turn. Unlike the unit tests this calls the real model, so it costs requests.
+
 ## Tests
 
 ```bash
 pytest
 ```
 
-70 tests. Vector stores are tested against both backends with the same suite.
+131 tests, run on 3.11 and 3.12 in CI. Vector stores are tested against both backends with the same suite.
 Embedding is stubbed with a hashing embedder and the LLM with a scripted one,
 so the tests need no model download, no API key and no network. The agent
 tests mostly cover failure: malformed arguments, unknown tools, invented
@@ -155,7 +189,6 @@ citations, runaway tool loops.
 
 ## Still to do
 
-- Measure the agent, not just retrieval: valid tool-call rate, grounding rate
 - Reranker over the fused top-k
 - Scheduled re-ingestion
-- HTTP API and a web UI
+- Web UI

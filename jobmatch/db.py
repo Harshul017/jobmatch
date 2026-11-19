@@ -113,7 +113,12 @@ def now() -> str:
 
 
 def connect(path: Path | str = DB_PATH) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+    # check_same_thread=False because the API serves requests from a thread
+    # pool while holding one connection. Python's sqlite3 reports
+    # threadsafety=3 (serialized) on a standard build, so the library itself
+    # serializes access; without this flag any threaded server raises
+    # "SQLite objects created in a thread can only be used in that thread".
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
