@@ -1,101 +1,123 @@
 # JobMatch
 
-A job-matching agent over a live index of real job listings. You say what you
-are looking for; it retrieves matching roles, ranks them, and explains each
-match using only the text of the listing it retrieved.
+Search engine over ~7,000 live job listings, pulled from public job-board APIs.
+Combines keyword search with embeddings and measures whether the combination
+actually helps.
 
-Built around three things that are easy to claim and hard to do well: a jobs
-index that keeps changing, hybrid retrieval that is measured rather than
-assumed, and an LLM that is kept on a short leash.
+Work in progress. Retrieval works; the agent layer isn't built yet.
 
-## Status
+## Setup
 
-- [x] Phase 1 — ingestion, normalisation, dedupe, SQLite storage
-- [x] Phase 2 — hybrid retrieval (BM25 + embeddings + RRF) and evaluation
-- [ ] Phase 3 — tool-calling agent with preference memory
-- [ ] Phase 4 — LLM output evals, API, Docker, CI
+```bash
+python -m venv .venv
+.venv\Scripts\Activate.ps1      # Linux/mac: . .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # add a Groq API key (only needed later)
+```
 
-## How it works
+## Usage
 
-**Sources.** Jobs come from the public job-board APIs that companies already
-publish through: Greenhouse, Lever and Ashby, plus the Remotive and Arbeitnow
-aggregator feeds. No scraping of boards that forbid it.
+```bash
+python -m jobmatch.resolve      # find each company's ATS board
+python -m jobmatch.ingest       # fetch listings into data/jobs.db
+python -m jobmatch.index        # embed and build the vector index
+python -m jobmatch.query "backend engineer working on search" --compare
+```
 
-**Keeping the index fresh.** Ingestion is idempotent. Each listing gets a
-stable id, so re-running updates in place. The same role posted to two boards
-collapses to one row via a normalised `(company, title, location)` key.
-Anything a source stops returning is marked expired rather than deleted.
+`--compare` runs the same query through keyword-only, embeddings-only and the
+fusion so you can see where they disagree.
 
-**Search.** Each listing is indexed twice: SQLite FTS5 for keyword matching
-(so "OpenSearch" finds the posting that names it) and embeddings for semantic
-matching (so "AI agents" finds "LLM assistants"). The two rankings merge with
-Reciprocal Rank Fusion, which combines by position and so never has to put
-BM25 scores and cosine similarities on a common scale.
+Other flags: `--location india`, `--remote`, `--seniority intern`,
+`--mode bm25|dense|hybrid`, `--store qdrant`.
 
-**Why exact search, not a vector database.** Both are implemented behind one
-`VectorStore` interface and benchmarked against each other. At this corpus
-size an exact numpy matrix multiply wins on both axes:
+Edit `companies.txt` to change what gets indexed. The resolver tries plausible
+slugs against each ATS and saves hits to `data/slugs.json`. If a company
+doesn't resolve but you know its careers URL, paste the URL in instead of the
+name.
+
+## Where the data comes from
+
+Greenhouse, Lever and Ashby publish public job-board APIs that companies use
+for their own careers pages. Remotive and Arbeitnow add remote and European
+listings. Nothing is scraped from boards that forbid it.
+
+Remotive and Arbeitnow both ask that listings link back to them, so every
+record keeps its source URL and the source is shown with each result.
+
+## Ingestion
+
+Re-running is safe. Every listing gets an id derived from its source and
+source id, so a second run updates rather than duplicates. Listings that stop
+appearing get marked expired instead of deleted.
+
+The same role often appears on two boards. Matching them needs the location
+strings to agree, and they don't: the same office shows up as `bengaluru`,
+`Bangalore, Karnataka`, `Bengaluru, India` and `Bengaluru-VTP, India`.
+`locations.py` folds those together (1,203 raw strings → 556 canonical), which
+took cross-source duplicate detection from 0 matches to 9.
+
+## Retrieval
+
+Two indexes over the same listings:
+
+- **SQLite FTS5** for keyword matching, with title and company weighted above
+  the description body. Finds the posting that literally says "OpenSearch".
+- **Embeddings** (`bge-small-en-v1.5` via fastembed, ONNX, no PyTorch) for
+  semantic matching. Finds the Elasticsearch role when you searched for
+  "search and ranking".
+
+Results merge with Reciprocal Rank Fusion, which combines by rank position.
+That avoids having to normalise BM25 scores against cosine similarities, which
+aren't on the same scale.
+
+Filters (location, remote, seniority, company) resolve to an id set in SQL and
+apply to both retrievers.
+
+## Vector store
+
+Both an exact numpy implementation and Qdrant sit behind one interface.
+Benchmarked on this corpus:
 
 | store | build | query |
 |---|---|---|
 | numpy (exact) | ~70,000 vec/s | 0.22 ms |
 | Qdrant (local, on disk) | ~216 vec/s | 1.71 ms |
 
-Local Qdrant also ignores payload indexes, so the filtering advantage that
-would justify it is not available either. Qdrant stays in the codebase and
-stays correct -- it is the right choice against a server and a corpus large
-enough that exact search stops being instant -- but defaulting to it here
-would be cargo-culting a vector database into a problem that does not have
-one yet.
+Exact search is the default here. At 7k vectors a brute-force matrix multiply
+is already sub-millisecond, and Qdrant's local mode ignores payload indexes so
+the filtering advantage isn't available either. Qdrant stays in the codebase
+and stays correct — it's the right choice against a server and a bigger index.
 
-**Embeddings are cached.** Embedding the corpus is by far the slowest step, so
-vectors are stored against a hash of the exact text that produced them. A
-re-index reuses everything unchanged and re-embeds only what actually moved,
-which turns a multi-hour rebuild into about half a second.
+Embedding is the slow part, so vectors are cached against a hash of the text
+that produced them. Changing what gets embedded invalidates the cache;
+changing unrelated code doesn't. A re-index went from about 3 hours to under a
+second.
 
-**The agent.** An open-weights model gets three tools — `search_jobs`,
-`get_job`, `save_preference` — and a capped loop. Every tool call is validated
-against a Pydantic schema, with a retry and a fallback to plain search, and
-explanations are grounded in the retrieved listing.
-
-## Setup
+## Evaluation
 
 ```bash
-python -m venv .venv && . .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-cp .env.example .env                           # add your Groq API key
+python -m jobmatch.label --seed    # judge pooled results by hand
+python -m jobmatch.evaluate        # Recall@k, P@5, MRR, nDCG@10 per mode
 ```
 
-## Usage
+Judging only what one retriever returns would decide the comparison in
+advance, so candidates are pooled: the union of what each mode returns,
+shuffled before display. Anything outside the pool counts as non-relevant,
+which is the usual limitation of pooled judgements.
+
+## Tests
 
 ```bash
-python -m jobmatch.resolve            # find each company's ATS board
-python -m jobmatch.ingest             # pull listings into data/jobs.db
-python -m jobmatch.index              # embed and build the vector index
-python -m jobmatch.query "backend engineer working on search" --compare
-python -m jobmatch.label --seed       # hand-label the evaluation queries
-python -m jobmatch.evaluate           # Recall@k, MRR, nDCG per mode
 pytest
 ```
 
-Useful flags: `--store qdrant` on `index`/`query`/`evaluate` to use the vector
-database instead of exact search, `--mode bm25|dense|hybrid` to isolate one
-retriever, and `python -m jobmatch.bench_embed` to measure embedding
-throughput on your own machine.
+70 tests. Vector stores are tested against both backends with the same suite.
+Embedding is stubbed with a hashing embedder so the tests need no model
+download and no network.
 
-Edit `companies.txt` to change what the index covers — one company name per
-line. The resolver tries plausible slugs against each ATS and saves the hits to
-`data/slugs.json`. If a company fails but you know its careers URL, paste the
-URL into `companies.txt` instead of the name.
+## Still to do
 
-If a source parses oddly, dump a raw record and compare:
-
-```bash
-python -m jobmatch.inspect_source greenhouse figma
-```
-
-## Attribution
-
-Remotive and Arbeitnow both ask that listings taken from their APIs link back
-to them. Every stored record keeps its source URL, and the source is shown with
-each result.
+- Diversify results; a single company can take most of the top 10
+- LLM agent over search with tool calls and remembered preferences
+- Reranker over the fused top-k
+- Scheduled re-ingestion
