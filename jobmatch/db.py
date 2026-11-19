@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     location_canonical TEXT,
     remote      INTEGER NOT NULL DEFAULT 0,
     seniority   TEXT,
+    min_years   INTEGER,
     description TEXT NOT NULL,
     url         TEXT,
     posted_at   TEXT,
@@ -69,6 +70,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_dedupe ON jobs(dedupe_key);
 CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source);
 CREATE INDEX IF NOT EXISTS idx_jobs_active ON jobs(expired_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_loc    ON jobs(location_canonical);
+CREATE INDEX IF NOT EXISTS idx_jobs_years  ON jobs(min_years);
 """
 
 SCHEMA = SCHEMA_TABLES + SCHEMA_INDEXES
@@ -77,7 +79,7 @@ SCHEMA_VERSION = 2
 
 # Columns added after the first release. CREATE TABLE IF NOT EXISTS silently
 # skips an existing table, so new columns have to be ALTERed in by hand.
-ADDED_COLUMNS = {"location_canonical": "TEXT"}
+ADDED_COLUMNS = {"location_canonical": "TEXT", "min_years": "INTEGER"}
 
 
 def _migrate(conn: sqlite3.Connection) -> list[str]:
@@ -91,6 +93,41 @@ def _migrate(conn: sqlite3.Connection) -> list[str]:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {decl}")
             added.append(column)
     return added
+
+
+def backfill(conn: sqlite3.Connection) -> dict:
+    """Recompute every derived column from stored text.
+
+    Fixing how a location is parsed, or adding a derived field, would
+    otherwise mean re-fetching every source. None of these feed the embedding
+    text, so this costs no embeddings and runs in seconds.
+    """
+    from . import locations, normalize
+
+    rows = conn.execute(
+        "SELECT id, company, title, location, description, location_canonical,"
+        "       min_years, dedupe_key FROM jobs"
+    ).fetchall()
+
+    changed = {"location": 0, "years": 0, "dedupe_key": 0}
+    updates = []
+    for row in rows:
+        canonical = locations.canonical(row["location"])
+        years = normalize.min_years_required(row["description"])
+        key = normalize.dedupe_key(row["company"], row["title"], row["location"])
+        if canonical != row["location_canonical"]:
+            changed["location"] += 1
+        if years != row["min_years"]:
+            changed["years"] += 1
+        if key != row["dedupe_key"]:
+            changed["dedupe_key"] += 1
+        updates.append((canonical, years, key, row["id"]))
+
+    conn.executemany(
+        "UPDATE jobs SET location_canonical = ?, min_years = ?, dedupe_key = ? "
+        "WHERE id = ?", updates)
+    conn.commit()
+    return changed
 
 
 def needs_rebuild(conn: sqlite3.Connection) -> bool:
@@ -154,9 +191,10 @@ def upsert_job(conn: sqlite3.Connection, job: Job) -> str:
     conn.execute(
         """
         INSERT INTO jobs (id, source, source_id, company, title, location,
-                          location_canonical, remote, seniority, description, url,
-                          posted_at, dedupe_key, first_seen, last_seen, expired_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+                          location_canonical, remote, seniority, min_years,
+                          description, url, posted_at, dedupe_key, first_seen,
+                          last_seen, expired_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
         ON CONFLICT(id) DO UPDATE SET
             company = excluded.company,
             title = excluded.title,
@@ -164,6 +202,7 @@ def upsert_job(conn: sqlite3.Connection, job: Job) -> str:
             location_canonical = excluded.location_canonical,
             remote = excluded.remote,
             seniority = excluded.seniority,
+            min_years = excluded.min_years,
             description = excluded.description,
             url = excluded.url,
             posted_at = excluded.posted_at,
@@ -172,8 +211,8 @@ def upsert_job(conn: sqlite3.Connection, job: Job) -> str:
             expired_at = NULL
         """,
         (job.id, job.source, job.source_id, job.company, job.title, job.location,
-         job.location_canonical, int(job.remote), job.seniority, job.description,
-         job.url, job.posted_at, job.dedupe_key, ts, ts),
+         job.location_canonical, int(job.remote), job.seniority, job.min_years,
+         job.description, job.url, job.posted_at, job.dedupe_key, ts, ts),
     )
 
     conn.execute("DELETE FROM jobs_fts WHERE job_id = ?", (job.id,))
@@ -215,8 +254,8 @@ def _row_to_job(row: sqlite3.Row) -> Job:
     return Job(
         source=row["source"], source_id=row["source_id"], company=row["company"],
         title=row["title"], location=row["location"], remote=bool(row["remote"]),
-        seniority=row["seniority"], description=row["description"],
-        url=row["url"], posted_at=row["posted_at"],
+        seniority=row["seniority"], min_years=row["min_years"],
+        description=row["description"], url=row["url"], posted_at=row["posted_at"],
     )
 
 
@@ -282,6 +321,17 @@ def stats(conn: sqlite3.Connection) -> dict:
                GROUP BY 1 ORDER BY 2 DESC LIMIT 8"""
         )
     }
+    years = conn.execute(
+        """SELECT COUNT(*) known, AVG(min_years) avg_years FROM jobs
+           WHERE expired_at IS NULL AND min_years IS NOT NULL"""
+    ).fetchone()
+    senior_by_years = conn.execute(
+        """SELECT COUNT(*) c FROM jobs WHERE expired_at IS NULL
+           AND seniority IS NULL AND min_years >= 5"""
+    ).fetchone()["c"]
     return {"total": total, "active": active, "expired": total - active,
             "companies": companies, "by_source": by_source,
-            "top_locations": top_locations}
+            "top_locations": top_locations,
+            "years_known": years["known"],
+            "mean_years_required": round(years["avg_years"], 1) if years["avg_years"] else None,
+            "untitled_but_senior_by_years": senior_by_years}

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobMatch</title>
+<style>
+  :root {
+    --ink: #16181d;
+    --muted: #6b7280;
+    --line: #e4e6eb;
+    --bg: #fbfbfc;
+    --card: #ffffff;
+    --accent: #2f5fd0;
+    --accent-soft: #eef2fc;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 20px 80px; }
+  header { margin-bottom: 28px; }
+  h1 { font-size: 22px; font-weight: 650; letter-spacing: -0.015em; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .sub b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .tabs { display: flex; gap: 2px; margin: 24px 0 16px; border-bottom: 1px solid var(--line); }
+  .tab {
+    padding: 9px 14px; border: 0; background: none; cursor: pointer;
+    font: inherit; font-size: 14px; color: var(--muted);
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 550; }
+
+  form { display: flex; gap: 8px; }
+  input[type=text] {
+    flex: 1; padding: 11px 13px; border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; background: var(--card); color: var(--ink);
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  button.go {
+    padding: 11px 18px; border: 0; border-radius: 8px; background: var(--ink);
+    color: #fff; font: inherit; font-weight: 550; cursor: pointer;
+  }
+  button.go:disabled { opacity: .45; cursor: default; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  .filters select, .filters input[type=text] {
+    padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px;
+    font: inherit; font-size: 13px; background: var(--card); flex: 0 0 auto;
+  }
+  .filters label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+  .status { color: var(--muted); font-size: 13px; margin: 20px 0 0; min-height: 20px; }
+  .status .mono { font-family: var(--mono); font-size: 12px; }
+
+  ol.results { list-style: none; padding: 0; margin: 18px 0 0; }
+  ol.results li {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 8px;
+  }
+  .title { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+  .title a { color: var(--ink); text-decoration: none; }
+  .title a:hover { color: var(--accent); text-decoration: underline; }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .chips { margin-top: 8px; display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 5px;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .chip.grey { background: #f1f2f4; color: var(--muted); }
+
+  .reply { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+           padding: 16px 18px; margin-top: 18px; white-space: pre-wrap; }
+  .reply .cite { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .warn { color: #a3541a; }
+  .examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+              margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .examples button {
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    border-radius: 999px; padding: 4px 11px; font: inherit; font-size: 12.5px;
+    cursor: pointer; transition: border-color .12s, color .12s;
+  }
+  .examples button:hover { border-color: var(--accent); color: var(--accent); }
+
+  ol.results li { transition: border-color .12s; }
+  ol.results li:hover { border-color: #d3d7df; }
+  .title a::after { content: " \2197"; font-size: .85em; color: var(--muted); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (max-width: 600px) {
+    .wrap { padding: 28px 16px 56px; }
+    form { flex-direction: column; }
+    button.go { width: 100%; }
+    .filters input[type=text], .filters select { flex: 1 1 auto; min-width: 0; }
+  }
+
+  footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line);
+           color: var(--muted); font-size: 12.5px; }
+  footer a { color: var(--muted); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>JobMatch</h1>
+    <div class="sub" id="sub">loading index&hellip;</div>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-pane="search">Search</button>
+    <button class="tab" role="tab" aria-selected="false" data-pane="ask">Ask</button>
+  </div>
+
+  <section id="pane-search">
+    <form id="search-form">
+      <input type="text" id="q" placeholder="backend engineer working on search and ranking" autocomplete="off">
+      <button class="go" type="submit" id="go-search">Search</button>
+    </form>
+    <div class="filters">
+      <input type="text" id="location" placeholder="location" size="12">
+      <select id="exclude">
+        <option value="">any seniority</option>
+        <option value="senior,staff,principal,management">nothing senior (max 4 yrs)</option>
+        <option value="__only_intern">internships only</option>
+      </select>
+      <select id="mode">
+        <option value="hybrid">hybrid</option>
+        <option value="bm25">keyword only</option>
+        <option value="dense">embeddings only</option>
+      </select>
+      <label><input type="checkbox" id="remote"> remote only</label>
+      <label><input type="checkbox" id="diverse" checked> max 2 per company</label>
+    </div>
+    <div class="examples" id="examples">
+      <span>Try:</span>
+      <button type="button" data-q="backend engineer working on search and ranking">search &amp; ranking</button>
+      <button type="button" data-q="building LLM agents that use tools" data-loc="">LLM agents</button>
+      <button type="button" data-q="software engineering internship" data-loc="india">internships in India</button>
+      <button type="button" data-q="distributed systems and databases">distributed systems</button>
+    </div>
+    <p class="status" id="search-status"></p>
+    <ol class="results" id="results"></ol>
+  </section>
+
+  <section id="pane-ask" class="hidden">
+    <form id="ask-form">
+      <input type="text" id="msg" placeholder="remote ML roles in india, nothing senior" autocomplete="off">
+      <button class="go" type="submit">Ask</button>
+    </form>
+    <p class="status" id="ask-status"></p>
+    <div id="chat"></div>
+  </section>
+
+  <footer>
+    Live listings from company job boards (Greenhouse, Lever, Ashby) plus
+    <a href="https://remotive.com">Remotive</a> and <a href="https://www.arbeitnow.com">Arbeitnow</a>.
+    Every result links to the original posting.
+    <br>
+    Keyword search and embeddings, merged by rank fusion &mdash;
+    the chip on each result shows which found it.
+    <a href="https://github.com/Harshul017/jobmatch">Source</a>.
+  </footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => (s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// The index stores locations as "bengaluru, in"; people read "Bengaluru, India".
+const COUNTRIES = {
+  in: "India", us: "USA", gb: "UK", de: "Germany", sg: "Singapore", ie: "Ireland",
+  nl: "Netherlands", fr: "France", ca: "Canada", au: "Australia", ae: "UAE",
+  pl: "Poland", es: "Spain", jp: "Japan", il: "Israel", br: "Brazil", mx: "Mexico",
+};
+const titleCase = s => s.replace(/\b[a-z]/g, c => c.toUpperCase());
+function prettyPlace(canonical) {
+  if (!canonical) return "";
+  const parts = canonical.split(",").map(s => s.trim());
+  const country = COUNTRIES[parts[parts.length - 1]];
+  if (!country) return titleCase(canonical);
+  const rest = parts.slice(0, -1).join(", ");
+  if (!rest) return country;
+  return (rest === "remote" ? "Remote" : titleCase(rest)) + ", " + country;
+}
+
+fetch("/health").then(r => r.json()).then(d => {
+  $("sub").innerHTML = `<b>${d.jobs.toLocaleString()}</b> live listings, searched by keyword and meaning.`;
+}).catch(() => { $("sub").textContent = "index unavailable"; });
+
+document.querySelectorAll(".tab").forEach(tab => tab.onclick = () => {
+  document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", t === tab));
+  $("pane-search").classList.toggle("hidden", tab.dataset.pane !== "search");
+  $("pane-ask").classList.toggle("hidden", tab.dataset.pane !== "ask");
+});
+
+document.querySelectorAll("#examples button").forEach(b => b.onclick = () => {
+  $("q").value = b.dataset.q;
+  if (b.dataset.loc !== undefined) $("location").value = b.dataset.loc;
+  $("search-form").requestSubmit();
+});
+
+$("search-form").onsubmit = async e => {
+  e.preventDefault();
+  const q = $("q").value.trim();
+  if (!q) return;
+  const params = new URLSearchParams({ q, k: 12, mode: $("mode").value });
+  if ($("location").value.trim()) params.set("location", $("location").value.trim());
+  if ($("remote").checked) params.set("remote", "true");
+  if ($("diverse").checked) params.set("diverse", "2");
+  const ex = $("exclude").value;
+  if (ex === "__only_intern") { params.set("seniority", "intern"); params.set("max_years", "1"); }
+  else if (ex) {
+    ex.split(",").forEach(v => params.append("exclude_seniority", v));
+    // Titles under-report seniority, so cap the years the posting asks for too.
+    params.set("max_years", "4");
+  }
+
+  $("search-status").textContent = "searching…";
+  $("results").innerHTML = "";
+  const started = performance.now();
+  try {
+    const data = await (await fetch("/search?" + params)).json();
+    const ms = Math.round(performance.now() - started);
+    $("search-status").innerHTML = data.count
+      ? `${data.count} results <span class="mono">${ms}ms</span>`
+      : `Nothing matched &ldquo;${esc(q)}&rdquo; with those filters. Try removing one.`;
+    $("results").innerHTML = data.results.map(r => `
+      <li>
+        <div class="title">${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` : esc(r.title)}</div>
+        <div class="meta">${esc(r.company)}${r.location ? " &middot; " + esc(prettyPlace(r.location)) : ""}</div>
+        <div class="chips">
+          ${r.seniority ? `<span class="chip">${esc(r.seniority)}</span>` : `<span class="chip">mid</span>`}
+          ${r.remote ? `<span class="chip">remote</span>` : ""}
+          ${r.min_years ? `<span class="chip grey">${r.min_years}+ yrs</span>` : ""}
+          <span class="chip grey">${esc(r.found_by.join(" + "))}</span>
+        </div>
+      </li>`).join("");
+  } catch (err) {
+    $("search-status").textContent = "Search failed: " + err;
+  } finally {
+    $("go-search").disabled = false;
+  }
+};
+
+$("ask-form").onsubmit = async e => {
+  e.preventDefault();
+  const message = $("msg").value.trim();
+  if (!message) return;
+  $("msg").value = "";
+  const box = document.createElement("div");
+  box.className = "reply";
+  box.textContent = "…";
+  $("chat").prepend(box);
+  $("ask-status").textContent = "thinking…";
+  const started = performance.now();
+  try {
+    const res = await fetch("/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    const secs = ((performance.now() - started) / 1000).toFixed(1);
+    const flags = [];
+    if (!data.grounded) flags.push('<span class="warn">a cited job could not be verified and was removed</span>');
+    if (data.fell_back) flags.push("answered from plain search");
+    if (data.remembered && Object.keys(data.remembered).length)
+      flags.push("remembered " + esc(JSON.stringify(data.remembered)));
+    box.innerHTML = `<div><b>${esc(message)}</b></div><div style="margin-top:10px">${esc(data.reply)}</div>`
+      + `<div class="note">${secs}s${flags.length ? " &middot; " + flags.join(" &middot; ") : ""}</div>`;
+    $("ask-status").textContent = "";
+  } catch (err) {
+    box.innerHTML = `<div><b>${esc(message)}</b></div><div class="note warn">Failed: ${esc(String(err))}</div>`;
+    $("ask-status").textContent = "";
+  }
+};
+</script>
+</body>
+</html>

@@ -56,6 +56,13 @@ strings to agree, and they don't: the same office shows up as `bengaluru`,
 `locations.py` folds those together (1,203 raw strings → 556 canonical), which
 took cross-source duplicate detection from 0 matches to 9.
 
+It also has to recognise what *isn't* a place. `In-Office` is a work
+arrangement, not a city, and collapsing it naively produced `in` — which
+collides with India's country code, so roles in Austin and London matched a
+filter for India. The mirror image is `IN-Bengaluru`, where `IN-` is a country
+prefix and the city follows; stripping at the hyphen threw the city away.
+Between them those accounted for 669 wrong locations.
+
 ## Retrieval
 
 Two indexes over the same listings:
@@ -74,6 +81,13 @@ Filters (location, remote, seniority, company) resolve to an id set in SQL and
 apply to both retrievers. Mid-level roles are stored with a NULL seniority, so
 excluding "senior" has to keep NULL explicitly — `NOT IN` never matches NULL,
 and a naive exclusion silently drops most of the index.
+
+Titles under-report seniority. A role called "Software Engineer" that asks for
+6-8 years is senior in everything but its name, and 693 listings here (9.7%)
+are exactly that: no marker in the title, five or more years in the
+description. So the years requirement is parsed out of the body text and
+filtered on separately — "nothing senior" means both an excluded title level
+and a ceiling on years. 59% of listings state a figure; the mean is 5.6 years.
 
 Relevance ranking has no notion of variety, so one large employer with many
 similar postings fills the page. `--diverse N` caps how many results one
@@ -142,13 +156,32 @@ curl -X POST localhost:8000/chat -H 'content-type: application/json' \
 but cannot answer anything, so it returns 503 rather than looking healthy to
 a load balancer.
 
+A single-page UI is served at `/`, and interactive API docs at `/docs`.
+
+## Deploying
+
+The working index is ~117MB, nearly all of it full job descriptions that the
+app never shows. `prepare_deploy` writes a trimmed copy — descriptions cut to
+what the API actually returns, expired rows dropped, vacuumed, with matching
+vectors.
+
 ```bash
+python -m jobmatch.prepare_deploy --engineering-only --max-jobs 3000
 docker build -t jobmatch .
-docker run -p 8000:8000 -v $(pwd)/data:/app/data --env-file .env jobmatch
+docker run -p 8000:8000 --env-file .env jobmatch
 ```
 
-The index is mounted rather than baked into the image. It goes stale, and it
-is much larger than the code.
+The slim index is baked into the image, since most free hosting tiers have no
+persistent disk. To run against the full local index instead, skip the `COPY`
+and mount it: `-v $(pwd)/data:/app/data`.
+
+The only secret is `GROQ_API_KEY`. Search works without it; the chat endpoint
+returns 503 and says why.
+
+`render.yaml` deploys it on Render's free tier: connect the repo, set
+`GROQ_API_KEY` in the dashboard, done. The slim index is committed so the
+image can be built from the repo alone. The free tier sleeps after about 15
+minutes idle, so a first request after a quiet spell takes a while to wake.
 
 ## Evaluation
 
@@ -161,6 +194,19 @@ Judging only what one retriever returns would decide the comparison in
 advance, so candidates are pooled: the union of what each mode returns,
 shuffled before display. Anything outside the pool counts as non-relevant,
 which is the usual limitation of pooled judgements.
+
+```bash
+python -m jobmatch.autolabel             # a model judges the pool
+python -m jobmatch.autolabel --verify 40 # spot-check it yourself
+python -m jobmatch.autolabel --report
+```
+
+Hand-labelling is the gold standard and `label.py` does that. `autolabel.py`
+is the fallback: a model judges the pooled candidates and a human spot-checks
+a random sample, so the agreement rate is measured rather than assumed. The
+figure is written into `data/eval.json` and printed by `evaluate` alongside
+any metric computed from those labels, because a retrieval number is only
+worth what its judgements are worth.
 
 Retrieval metrics say nothing about whether the agent called the right tool,
 honoured a constraint, or made a job up, so the agent is scored separately:

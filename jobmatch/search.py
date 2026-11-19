@@ -32,12 +32,14 @@ class Filters(BaseModel):
     remote: bool | None = None
     seniority: list[str] = Field(default_factory=list)
     exclude_seniority: list[str] = Field(default_factory=list)
+    max_years: int | None = None
     company: str | None = None
     exclude_companies: list[str] = Field(default_factory=list)
 
     def is_empty(self) -> bool:
         return not any([self.location, self.remote is not None, self.seniority,
-                        self.exclude_seniority, self.company, self.exclude_companies])
+                        self.exclude_seniority, self.max_years is not None,
+                        self.company, self.exclude_companies])
 
 
 class Hit(BaseModel):
@@ -108,6 +110,10 @@ def allowed_ids(conn: sqlite3.Connection, filters: Filters | None) -> set[str] |
             params += named
         if MID in filters.exclude_seniority:
             where.append("seniority IS NOT NULL")
+    if filters.max_years is not None:
+        # An unknown requirement is not a reason to hide a role, so NULL stays.
+        where.append("(min_years IS NULL OR min_years <= ?)")
+        params.append(filters.max_years)
     if filters.company:
         where.append("LOWER(company) LIKE ?")
         params.append(f"%{filters.company.lower()}%")

@@ -41,6 +41,12 @@ class SearchJobsArgs(BaseModel):
         description="Levels to rule out. Use this for 'nothing senior', which "
                     "means exclude senior, staff, principal and management "
                     "rather than asking only for junior roles.")
+    max_years: int | None = Field(
+        default=None, ge=0, le=25,
+        description="Most years of experience the posting may ask for. Titles "
+                    "lie: a 'Software Engineer' role wanting 6-8 years is "
+                    "senior. Pair this with exclude_seniority, around 4 for "
+                    "'nothing senior' and 1 for entry level.")
     limit: int = Field(default=5, ge=1, le=MAX_RESULTS)
 
 
@@ -80,6 +86,7 @@ def _search_jobs(ctx: "ToolContext", args: SearchJobsArgs) -> dict:
         remote=args.remote if args.remote is not None else pref.remote_only,
         seniority=args.seniority or ([pref.seniority] if pref.seniority else []),
         exclude_seniority=args.exclude_seniority,
+        max_years=args.max_years,
         exclude_companies=pref.avoid,
     )
     # Remembered so the fallback can honour the same constraints instead of

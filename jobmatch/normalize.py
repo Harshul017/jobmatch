@@ -86,6 +86,81 @@ def detect_seniority(title: str | None) -> str | None:
     return None
 
 
+# "5+ years", "3-5 years", "at least 6 years", "minimum of 4 yrs".
+_YEARS = re.compile(r"""
+    (?:at\s+least\s+|minimum\s+(?:of\s+)?|min\.?\s*|over\s+|)
+    (?P<lo>\d{1,2})
+    \s*(?:\+|plus)?
+    (?:\s*(?:-|–|—|to)\s*\d{1,2}\s*(?:\+|plus)?)?
+    \s*(?:\+|plus)?\s*
+    (?:years?|yrs?)\b
+""", re.I | re.X)
+
+# Only count a figure that is actually about experience. "in the last 5 years"
+# and "founded 10 years ago" are not requirements.
+_EXPERIENCE = re.compile(r"experien|背景", re.I)
+_LOOKAHEAD = 60
+
+
+def min_years_required(text: str | None) -> int | None:
+    """Lowest years-of-experience figure the posting asks for.
+
+    Title-based seniority misses the common case: a role called "Software
+    Engineer" that wants 6-8 years is senior in everything but its name. The
+    requirement is in the description, so read it from there.
+    """
+    if not text:
+        return None
+    found = []
+    for match in _YEARS.finditer(text):
+        tail = text[match.end():match.end() + _LOOKAHEAD]
+        if not _EXPERIENCE.search(tail):
+            continue
+        try:
+            years = int(match.group("lo"))
+        except (TypeError, ValueError):
+            continue
+        if 0 < years <= 25:       # ignore "1000 years" style noise
+            found.append(years)
+    return min(found) if found else None
+
+
+# Paragraphs that are about the employer rather than the work.
+_BOILERPLATE = re.compile(
+    r"^(about (us|the company|\w+)|who we are|our (mission|story|company)|"
+    r"company overview|at [A-Z][\w.& ]{2,30},)", re.I)
+# Phrases that mark the start of the actual job.
+_ROLE_SIGNAL = re.compile(
+    r"(you will|you'll|responsibilit|what you.{0,10}(do|bring)|the role|"
+    r"requirements|qualifications|we.{0,5}re looking for|your impact|"
+    r"experience with|skills|minimum|preferred)", re.I)
+
+
+def role_excerpt(text: str | None, limit: int = 700) -> str:
+    """The part of a posting that describes the job.
+
+    Most listings open with several paragraphs about the employer. Taking the
+    first N characters therefore returns marketing copy, which is useless for
+    judging whether a role matches a query -- and is what a relevance judge
+    would otherwise be reading.
+    """
+    if not text:
+        return ""
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if not paragraphs:
+        return text[:limit]
+
+    start = 0
+    for i, para in enumerate(paragraphs[:4]):
+        if _ROLE_SIGNAL.search(para):
+            start = i
+            break
+        if _BOILERPLATE.match(para):
+            start = i + 1
+    kept = " ".join(paragraphs[start:]) or " ".join(paragraphs)
+    return collapse(kept)[:limit]
+
+
 def job_id(source: str, source_id: str) -> str:
     """Stable primary key, so re-running ingestion updates rather than duplicates."""
     return hashlib.sha1(f"{source}:{source_id}".encode()).hexdigest()[:16]

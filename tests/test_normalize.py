@@ -1,3 +1,5 @@
+import pytest
+
 from jobmatch import normalize
 
 
@@ -67,3 +69,74 @@ def test_dedupe_matches_across_city_spellings():
     a = normalize.dedupe_key("Acme", "Backend Engineer", "Bangalore, Karnataka")
     b = normalize.dedupe_key("Acme", "Backend Engineer", "Bengaluru, India")
     assert a == b
+
+
+# --- years of experience --------------------------------------------------
+
+@pytest.mark.parametrize("text,expected", [
+    ("We need 6-8 years of experience in backend systems.", 6),
+    ("5+ years of professional experience required.", 5),
+    ("At least 3 years experience with Python.", 3),
+    ("Minimum of 10 years of relevant experience", 10),
+    ("2 to 4 years of industry experience", 2),
+    ("You have 1+ year of experience", 1),
+    ("8+ yrs experience leading teams", 8),
+    ("Requires 4+ years of experience; 6 years preferred.", 4),
+])
+def test_reads_the_lowest_year_requirement(text, expected):
+    assert normalize.min_years_required(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "Our company was founded 10 years ago.",
+    "Revenue tripled in the last 5 years.",
+    "A fast-growing team working on hard problems.",
+    "",
+    None,
+])
+def test_ignores_years_that_are_not_a_requirement(text):
+    assert normalize.min_years_required(text) is None
+
+
+def test_ignores_implausible_figures():
+    assert normalize.min_years_required("40 years of experience") is None
+
+
+# --- role excerpt ---------------------------------------------------------
+
+BOILERPLATE_FIRST = """Who we are
+
+About Stripe
+
+Stripe is a financial infrastructure platform for businesses worldwide.
+
+What you'll do
+
+Build payment services in Python and Go, owning them in production."""
+
+
+def test_excerpt_skips_the_company_blurb():
+    """Taking the first N characters returned marketing copy, so both the
+    relevance judge and the reader were shown the wrong evidence."""
+    out = normalize.role_excerpt(BOILERPLATE_FIRST)
+    assert out.startswith("What you'll do")
+    assert "financial infrastructure platform" not in out
+
+
+def test_excerpt_keeps_a_posting_that_starts_with_the_role():
+    text = "Responsibilities\n\nBuild and run backend services."
+    assert normalize.role_excerpt(text).startswith("Responsibilities")
+
+
+def test_excerpt_falls_back_rather_than_returning_nothing():
+    text = "A short note with no recognisable structure at all."
+    assert normalize.role_excerpt(text) == text
+
+
+def test_excerpt_respects_the_limit():
+    assert len(normalize.role_excerpt("word " * 500, limit=120)) <= 120
+
+
+def test_excerpt_handles_empty_input():
+    assert normalize.role_excerpt(None) == ""
+    assert normalize.role_excerpt("") == ""

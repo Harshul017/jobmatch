@@ -36,6 +36,11 @@ class LLM(Protocol):
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> Reply: ...
 
 
+class RateLimited(RuntimeError):
+    """The daily or per-minute budget is gone. Waiting is the only fix, so
+    callers should stop cleanly and keep whatever work is already done."""
+
+
 class GroqLLM:
     """Retries on transient failures. A free-tier rate limit is a 429, which is
     worth waiting out rather than failing the whole conversation."""
@@ -64,6 +69,11 @@ class GroqLLM:
                 return _to_reply(response)
             except Exception as exc:
                 last = exc
+                text = str(exc)
+                # A per-day budget will not come back during this run, so
+                # retrying three times just wastes the caller's time.
+                if "rate_limit" in text and ("per day" in text or "TPD" in text):
+                    raise RateLimited(text) from exc
                 if attempt == attempts - 1:
                     break
                 time.sleep(2 ** attempt)

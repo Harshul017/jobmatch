@@ -107,7 +107,22 @@ def main() -> None:
     for model_name in models:
         searcher = Searcher(conn, open_store(args.store, model_name), get_embedder(model_name))
         results = evaluate(searcher, labelled)
-        print_table(results, f"{len(labelled)} queries | {model_name} | {args.store}")
+        sources = {}
+        for q in labelled:
+            key = q.get("judged_by", "human")
+            sources[key] = sources.get(key, 0) + 1
+        provenance = ", ".join(f"{n} {k}-judged" for k, n in sorted(sources.items()))
+        print_table(results, f"{len(labelled)} queries ({provenance}) | "
+                             f"{model_name} | {args.store}")
+        verification = json.loads(EVAL_FILE.read_text(encoding="utf-8")).get("verification")
+        if "llm" in sources:
+            if verification:
+                print(f"\nLabels judged by a model; spot-checked against a human on "
+                      f"{verification['checked']} judgements, "
+                      f"{verification['agreement']:.0%} agreement.")
+            else:
+                print("\nLabels judged by a model and NOT yet spot-checked. "
+                      "Run: python -m jobmatch.autolabel --verify 40")
 
         if args.per_query:
             print("\nWeakest queries (hybrid, by nDCG@10):")

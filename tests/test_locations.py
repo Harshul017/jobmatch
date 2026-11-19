@@ -48,3 +48,36 @@ def test_matching_is_loose_in_the_right_direction():
 def test_remote_query_only_matches_remote_listings():
     assert locations.matches("Remote - India", "remote")
     assert not locations.matches("Gurugram", "remote")
+
+
+# --- work arrangements are not places -------------------------------------
+
+@pytest.mark.parametrize("raw", ["In-Office", "Multiple Locations", "Hybrid",
+                                 "Various", "TBD", "Flexible"])
+def test_a_work_arrangement_is_not_a_location(raw):
+    """Regression: "In-Office" reduced to "in", which collided with India's
+    country code, so Austin and London roles matched a filter for India."""
+    assert locations.canonical(raw) == ""
+    assert not locations.matches(raw, "India")
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("IN-Bengaluru", "bengaluru, in"),
+    ("IN-Pune", "pune, in"),
+    ("IN-Mumbai-MSO", "mumbai, in"),      # internal site code stripped
+    ("IN-Bangalore-MSO", "bengaluru, in"),
+    ("US-Austin", "austin, us"),
+])
+def test_a_country_code_prefix_keeps_the_city(raw, expected):
+    """Regression: the suffix rule cut everything after the first hyphen, so
+    "IN-Bengaluru" lost Bengaluru and became an unlocated India role."""
+    assert locations.canonical(raw) == expected
+
+
+def test_a_two_letter_token_is_never_treated_as_a_city():
+    assert locations.parse("IN")["city"] is None
+    assert locations.parse("CA")["city"] is None
+
+
+def test_multi_city_strings_take_the_first():
+    assert locations.canonical("San Francisco, CA • New York, NY") == "san francisco, us"

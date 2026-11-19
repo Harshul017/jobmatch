@@ -251,3 +251,53 @@ def test_diversification_is_off_by_default(tmp_path):
     capped = [h.job.company for h in s.search("backend engineer python", k=5,
                                               max_per_company=2)]
     assert plain != capped
+
+
+# --- years of experience --------------------------------------------------
+
+def _mixed_experience(tmp_path):
+    conn = db.connect(tmp_path / "y.db")
+    jobs = [
+        Job(source="greenhouse", source_id="a", company="A", title="Software Engineer",
+            location="Bengaluru, India",
+            description="Backend work. We need 6-8 years of experience."),
+        Job(source="greenhouse", source_id="b", company="B", title="Software Engineer",
+            location="Bengaluru, India",
+            description="Backend work. 2+ years of experience required."),
+        Job(source="greenhouse", source_id="c", company="C", title="Software Engineer",
+            location="Bengaluru, India",
+            description="Backend work. A great team to grow with."),
+    ]
+    for j in jobs:
+        db.upsert_job(conn, j)
+    conn.commit()
+    embedder, store = HashEmbedder(), NumpyStore()
+    store.reset(embedder.dim)
+    store.upsert([j.id for j in jobs],
+                 embedder.encode([j.embedding_text() for j in jobs]), [{}] * len(jobs))
+    return Searcher(conn, store, embedder), {j.company: j.id for j in jobs}
+
+
+def test_years_are_derived_from_the_description():
+    job = Job(source="x", source_id="1", company="A", title="Software Engineer",
+              description="We want 6-8 years of experience.")
+    assert job.min_years == 6
+
+
+def test_a_senior_posting_with_a_plain_title_is_excluded_by_years(tmp_path):
+    """The reported bug: 'nothing senior' returned a role asking for 6-8 years,
+    because nothing in its title said senior."""
+    s, ids = _mixed_experience(tmp_path)
+    plain = s.search("backend", k=10, filters=Filters(exclude_seniority=["senior"]))
+    assert ids["A"] in {h.job_id for h in plain}      # title filter alone misses it
+
+    capped = s.search("backend", k=10, filters=Filters(max_years=4))
+    assert ids["A"] not in {h.job_id for h in capped}
+
+
+def test_unknown_requirements_are_kept_not_hidden(tmp_path):
+    s, ids = _mixed_experience(tmp_path)
+    hits = s.search("backend", k=10, filters=Filters(max_years=4))
+    found = {h.job_id for h in hits}
+    assert ids["B"] in found      # asks for 2 years
+    assert ids["C"] in found      # says nothing, so give it the benefit of the doubt

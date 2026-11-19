@@ -82,6 +82,8 @@ def main() -> None:
     ap.add_argument("--stats", action="store_true", help="show the index and exit")
     ap.add_argument("--rebuild", action="store_true",
                     help="drop the index first (needed after a schema change)")
+    ap.add_argument("--backfill", action="store_true",
+                    help="recompute derived columns from stored text, no fetching")
     args = ap.parse_args()
 
     conn = db.connect()
@@ -91,6 +93,14 @@ def main() -> None:
         if db.needs_rebuild(conn):
             print("\nSome rows predate the current schema. Run: "
                   "python -m jobmatch.ingest --rebuild")
+        return
+
+    if args.backfill:
+        changed = db.backfill(conn)
+        print(f"recomputed derived fields: {changed['location']} locations, "
+              f"{changed['years']} experience requirements, "
+              f"{changed['dedupe_key']} dedupe keys changed")
+        print(json.dumps(db.stats(conn), indent=2))
         return
 
     if args.rebuild:

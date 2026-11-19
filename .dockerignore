@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.github/
+tests/
+.env
+task.md
+.gitmessage
+
+# The working index is ~117MB and is not what gets shipped.
+# `python -m jobmatch.prepare_deploy` writes the slim one to data/deploy/.
+data/*
+!data/deploy/

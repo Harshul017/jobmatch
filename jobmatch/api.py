@@ -8,7 +8,10 @@ loading them per call would add seconds to every query.
 """
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from . import db
@@ -40,6 +43,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="jobmatch", version="0.1.0", lifespan=lifespan)
+
+STATIC = Path(__file__).parent / "static"
+
+
+@app.get("/", include_in_schema=False)
+def home() -> FileResponse:
+    return FileResponse(STATIC / "index.html")
 
 
 class ChatRequest(BaseModel):
@@ -76,16 +86,18 @@ def search(
     remote: bool | None = None,
     seniority: list[str] = Query(default=[]),
     exclude_seniority: list[str] = Query(default=[]),
+    max_years: int | None = Query(None, ge=0, le=25),
     diverse: int | None = Query(None, ge=1, le=10),
 ) -> dict:
     filters = Filters(location=location, remote=remote, seniority=seniority,
-                      exclude_seniority=exclude_seniority)
+                      exclude_seniority=exclude_seniority, max_years=max_years)
     hits = state["searcher"].search(q, k=k, mode=mode, filters=filters,
                                     max_per_company=diverse)
     return {"query": q, "mode": mode, "count": len(hits), "results": [
         {"job_id": h.job_id, "title": h.job.title, "company": h.job.company,
          "location": h.job.location_canonical, "remote": h.job.remote,
-         "seniority": h.job.seniority, "url": h.job.url,
+         "seniority": h.job.seniority, "min_years": h.job.min_years,
+         "url": h.job.url,
          "found_by": h.found_by} for h in hits]}
 
 

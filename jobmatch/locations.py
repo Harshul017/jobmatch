@@ -68,16 +68,35 @@ COUNTRY_ALIASES = {
 REMOTE_WORDS = ("remote", "anywhere", "work from home", "wfh", "distributed",
                 "virtual", "home based", "home-based")
 
-# Office suffixes some boards append: "Bengaluru-VTP", "Hyderabad (HYD-2)".
-_SUFFIX = re.compile(r"[-–(].*$")
+_COUNTRY_CODES = set(COUNTRY_ALIASES.values())
+
+# Work arrangements and placeholders that boards put in the location field.
+# Without this, "In-Office" reduced to "in" and collided with India's country
+# code, so Austin and London roles matched a filter for India.
+NON_PLACE = {
+    "in office", "office", "hybrid", "onsite", "on site", "remote first",
+    "various", "multiple", "multiple locations", "flexible", "tbd", "n a",
+    "other", "field", "virtual", "unspecified", "worldwide", "global",
+}
+
+# "IN-Bengaluru", "US-Austin": an ISO country code prefixed to the city. The
+# old suffix rule cut everything after the hyphen and threw the city away.
+_CC_PREFIX = re.compile(r"^([a-z]{2})[-–]\s*(.+)$")
+
+# Internal site codes some employers append: "Bengaluru-VTP", "Mumbai-MSO".
+_SITE_CODE = re.compile(r"[-–]\s*[a-z0-9]{2,5}$")
+_PAREN = re.compile(r"\(.*?\)")
 _NOISE = re.compile(r"\b(office|campus|hq|headquarters|hybrid|onsite|on-site|based)\b")
 
 
 def _clean(part: str) -> str:
-    part = part.strip().lower()
-    part = _NOISE.sub(" ", part)
-    part = _SUFFIX.sub("", part)
+    """Light tidying only. Anything that might be a city has to survive."""
+    part = _PAREN.sub(" ", part.strip().lower())
     return re.sub(r"\s+", " ", part).strip(" .,/")
+
+
+def _is_non_place(part: str) -> bool:
+    return part.replace("-", " ").replace("_", " ").strip() in NON_PLACE
 
 
 def parse(raw: str | None) -> dict:
@@ -98,6 +117,20 @@ def parse(raw: str | None) -> dict:
 
     city = country = None
     for part in parts:
+        if not part or _is_non_place(part):
+            continue
+
+        # A leading ISO country code names the country and leaves the city.
+        prefix = _CC_PREFIX.match(part)
+        if prefix and prefix.group(1) in _COUNTRY_CODES:
+            country = country or prefix.group(1)
+            part = prefix.group(2)
+
+        part = _NOISE.sub(" ", _SITE_CODE.sub("", part))
+        part = re.sub(r"\s+", " ", part).strip(" .,/-")
+        if not part or _is_non_place(part):
+            continue
+
         candidate = CITY_ALIASES.get(part, part)
         # Known cities win over the state list: Delhi, Goa and Chandigarh are
         # both, and "Delhi, Delhi" should resolve to the city, not just India.
@@ -112,7 +145,9 @@ def parse(raw: str | None) -> dict:
             continue
         if any(w in part for w in REMOTE_WORDS):
             continue
-        if city is None and candidate:
+        # A two-letter token is a country code or an abbreviation, never a
+        # city we can trust. Guessing one is how "in" became a place.
+        if city is None and len(candidate) >= 3 and candidate not in _COUNTRY_CODES:
             city = candidate
 
     if city:
@@ -131,7 +166,10 @@ def parse(raw: str | None) -> dict:
     elif country:
         canonical = country
     else:
-        canonical = _clean(text)
+        # Nothing recognisable. Keep a tidied string so an unknown city still
+        # groups with itself, but a work arrangement is not a place at all.
+        tidied = _clean(text)
+        canonical = "" if _is_non_place(tidied) else tidied
 
     return {"city": city, "country": country, "remote": remote, "canonical": canonical}
 

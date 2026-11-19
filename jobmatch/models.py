@@ -1,7 +1,7 @@
 """The one shape every source is flattened into."""
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from . import locations, normalize
 
@@ -21,11 +21,22 @@ class Job(BaseModel):
     url: str | None = None
     posted_at: str | None = None
     seniority: str | None = None
+    # Years of experience the posting asks for. Derived from the description,
+    # because a role titled "Software Engineer" that wants 6-8 years is senior
+    # in everything but its name, and the title filter cannot see that.
+    min_years: int | None = None
 
     @field_validator("company", "title", "location", mode="before")
     @classmethod
     def _tidy(cls, v):
         return normalize.collapse(v) if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _derive_min_years(self):
+        if self.min_years is None:
+            object.__setattr__(self, "min_years",
+                               normalize.min_years_required(self.description))
+        return self
 
     @property
     def id(self) -> str:

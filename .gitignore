@@ -12,6 +12,14 @@ data/*.npz
 data/qdrant/
 data/slugs.json
 
+# The deploy bundle IS committed: Render builds the image from this repo, so
+# the slim index has to be here for the Dockerfile to copy it. ~20MB.
+# Re-running prepare_deploy adds another blob to history, so do it when the
+# listings are worth refreshing, not on every change.
+!data/deploy/
+!data/deploy/*.db
+!data/deploy/*.npz
+
 # Planning notes: personal, not part of the project
 task.md
 .gitmessage

@@ -1,0 +1,13 @@
+# Render blueprint. Point Render at this repo and it reads this file.
+services:
+  - type: web
+    name: jobmatch
+    runtime: docker
+    plan: free
+    region: singapore          # closest to the index's audience
+    healthCheckPath: /health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false            # set in the Render dashboard, never in the repo
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
