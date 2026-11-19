@@ -151,3 +151,103 @@ def test_impossible_filter_returns_nothing_rather_than_ignoring_it(searcher):
 def test_empty_filters_do_not_restrict(searcher):
     s, _ = searcher
     assert search.allowed_ids(s.conn, Filters()) is None
+
+
+# --- seniority: "mid" is NULL, and exclusion must not drop it -------------
+
+def test_mid_level_means_no_seniority_marker(searcher):
+    s, ids = searcher
+    hits = s.search("engineer", k=10, filters=Filters(seniority=["mid"]))
+    found = {h.job_id for h in hits}
+    assert ids["Frontend Engineer"] in found          # untagged title
+    assert ids["Software Engineer Intern"] not in found
+
+
+def test_excluding_senior_keeps_mid_level_roles(searcher):
+    """NOT IN never matches NULL, so a naive exclusion silently drops every
+    mid-level role -- which is most of them."""
+    s, ids = searcher
+    hits = s.search("engineer", k=10, filters=Filters(exclude_seniority=["senior"]))
+    found = {h.job_id for h in hits}
+    assert ids["Frontend Engineer"] in found
+    assert ids["Data Engineer"] in found
+    assert ids["Search Relevance Engineer"] not in found   # the senior one
+
+
+def test_excluding_mid_keeps_only_tagged_levels(searcher):
+    s, ids = searcher
+    hits = s.search("engineer", k=10, filters=Filters(exclude_seniority=["mid"]))
+    assert all(h.job.seniority is not None for h in hits)
+
+
+def test_seniority_list_may_mix_mid_with_named_levels(searcher):
+    s, ids = searcher
+    hits = s.search("engineer", k=10, filters=Filters(seniority=["mid", "intern"]))
+    found = {h.job_id for h in hits}
+    assert ids["Software Engineer Intern"] in found
+    assert ids["Frontend Engineer"] in found
+    assert ids["Search Relevance Engineer"] not in found
+
+
+# --- result diversity -----------------------------------------------------
+
+def _dominated_by_one_company(tmp_path):
+    """A corpus where one employer genuinely wins on relevance.
+
+    The earlier version of this fixture gave every company equally matching
+    text, so the small employers ranked top anyway and there was nothing to
+    diversify -- the test passed without exercising the feature.
+    """
+    conn = db.connect(tmp_path / "d.db")
+    jobs = [
+        Job(source="greenhouse", source_id=f"big{i}", company="Bigcorp",
+            title="Backend Engineer", location="Bengaluru, India",
+            description="Backend engineer building Python backend services and "
+                        "Python APIs. Backend Python backend engineering.")
+        for i in range(6)
+    ]
+    jobs += [
+        Job(source="lever", source_id=f"s{i}", company=name,
+            title="Software Engineer", location="Bengaluru, India",
+            description="Some backend work, mostly in Python.")
+        for i, name in enumerate(["Smallco", "Tinyco"])
+    ]
+    for j in jobs:
+        db.upsert_job(conn, j)
+    conn.commit()
+    embedder, store = HashEmbedder(), NumpyStore()
+    store.reset(embedder.dim)
+    store.upsert([j.id for j in jobs],
+                 embedder.encode([j.embedding_text() for j in jobs]), [{}] * len(jobs))
+    return Searcher(conn, store, embedder)
+
+
+def test_without_a_cap_one_company_takes_the_whole_page(tmp_path):
+    s = _dominated_by_one_company(tmp_path)
+    hits = s.search("backend engineer python", k=5)
+    assert all(h.job.company == "Bigcorp" for h in hits)
+
+
+def test_cap_makes_room_for_other_employers(tmp_path):
+    s = _dominated_by_one_company(tmp_path)
+    hits = s.search("backend engineer python", k=5, max_per_company=2)
+    companies = [h.job.company for h in hits]
+    assert set(companies) == {"Bigcorp", "Smallco", "Tinyco"}
+    assert companies[:2] == ["Bigcorp", "Bigcorp"]   # still relevance-ordered
+
+
+def test_the_cap_is_soft_so_the_page_still_fills(tmp_path):
+    """With only three employers available, returning three results would be
+    worse than topping up from the strongest one."""
+    s = _dominated_by_one_company(tmp_path)
+    hits = s.search("backend engineer python", k=8, max_per_company=2)
+    assert len(hits) == 8
+    assert hits[2].job.company in {"Smallco", "Tinyco"}  # promoted above overflow
+
+
+def test_diversification_is_off_by_default(tmp_path):
+    s = _dominated_by_one_company(tmp_path)
+    plain = [h.job.company for h in s.search("backend engineer python", k=5)]
+    capped = [h.job.company for h in s.search("backend engineer python", k=5,
+                                              max_per_company=2)]
+    assert plain != capped

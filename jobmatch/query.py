@@ -40,6 +40,8 @@ def main() -> None:
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--store", choices=["qdrant", "numpy"], default="numpy")
     ap.add_argument("--full", action="store_true", help="print the top result's text")
+    ap.add_argument("--diverse", type=int, metavar="N",
+                    help="allow at most N results per company")
     args = ap.parse_args()
 
     conn = db.connect()
@@ -53,10 +55,12 @@ def main() -> None:
 
     if args.compare:
         for mode in ("bm25", "dense", "hybrid"):
-            show(searcher.search(args.query, args.k, mode, filters), mode)
+            show(searcher.search(args.query, args.k, mode, filters,
+                                 max_per_company=args.diverse), mode)
         return
 
-    hits = searcher.search(args.query, args.k, args.mode, filters)
+    hits = searcher.search(args.query, args.k, args.mode, filters,
+                           max_per_company=args.diverse)
     show(hits)
     if args.full and hits:
         top = hits[0].job

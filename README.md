@@ -4,7 +4,7 @@ Search engine over ~7,000 live job listings, pulled from public job-board APIs.
 Combines keyword search with embeddings and measures whether the combination
 actually helps.
 
-Work in progress. Retrieval works; the agent layer isn't built yet.
+Work in progress.
 
 ## Setup
 
@@ -71,7 +71,15 @@ That avoids having to normalise BM25 scores against cosine similarities, which
 aren't on the same scale.
 
 Filters (location, remote, seniority, company) resolve to an id set in SQL and
-apply to both retrievers.
+apply to both retrievers. Mid-level roles are stored with a NULL seniority, so
+excluding "senior" has to keep NULL explicitly — `NOT IN` never matches NULL,
+and a naive exclusion silently drops most of the index.
+
+Relevance ranking has no notion of variety, so one large employer with many
+similar postings fills the page. `--diverse N` caps how many results one
+company can take. The cap is soft: capped entries are demoted rather than
+dropped, so the page still fills when few employers match. It's off for
+evaluation and on for the agent, which is showing a shortlist.
 
 ## Vector store
 
@@ -93,6 +101,34 @@ that produced them. Changing what gets embedded invalidates the cache;
 changing unrelated code doesn't. A re-index went from about 3 hours to under a
 second.
 
+## Agent
+
+```bash
+python -m jobmatch.chat
+python -m jobmatch.chat --once "backend roles in bengaluru, nothing senior" --verbose
+```
+
+An open-weights model (gpt-oss on Groq) drives the conversation through three
+tools: `search_jobs`, `get_job` and `save_preference`. Ranking stays in the
+retrieval code where it can be measured. The model decides what to look for
+and explains the results; it does not decide what is relevant.
+
+Small models misbehave in predictable ways, so the loop assumes they will:
+
+- Arguments are validated against a Pydantic schema. A bad type or a malformed
+  JSON blob comes back to the model as a readable error it can correct, rather
+  than raising.
+- Every job mentioned must be cited by id. Ids that no tool returned get
+  stripped from the reply, so an invented listing never reaches the person.
+- The loop is capped. If the model keeps calling tools without answering, or
+  answers with nothing, the agent runs the search itself and returns those
+  results.
+- Preferences persist in SQLite and are injected into the system prompt and
+  applied as search filters on later turns. If filters match nothing, the
+  search relaxes them and says so rather than returning an empty list.
+
+Swapping the model is a flag; swapping the provider is one class in `llm.py`.
+
 ## Evaluation
 
 ```bash
@@ -112,12 +148,14 @@ pytest
 ```
 
 70 tests. Vector stores are tested against both backends with the same suite.
-Embedding is stubbed with a hashing embedder so the tests need no model
-download and no network.
+Embedding is stubbed with a hashing embedder and the LLM with a scripted one,
+so the tests need no model download, no API key and no network. The agent
+tests mostly cover failure: malformed arguments, unknown tools, invented
+citations, runaway tool loops.
 
 ## Still to do
 
-- Diversify results; a single company can take most of the top 10
-- LLM agent over search with tool calls and remembered preferences
+- Measure the agent, not just retrieval: valid tool-call rate, grounding rate
 - Reranker over the fused top-k
 - Scheduled re-ingestion
+- HTTP API and a web UI

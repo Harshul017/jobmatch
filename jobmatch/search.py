@@ -20,17 +20,24 @@ RRF_K = 60  # dampening constant; 60 is the value from the original TREC paper
 POOL = 50   # how deep to read from each engine before fusing
 
 
+# A title with no seniority marker is a mid-level role. It is stored as NULL,
+# so "mid" has to be translated rather than matched directly.
+MID = "mid"
+LEVELS = ("intern", "junior", MID, "senior", "staff", "principal", "lead", "management")
+
+
 class Filters(BaseModel):
     """Hard constraints, applied before ranking rather than after."""
     location: str | None = None
     remote: bool | None = None
     seniority: list[str] = Field(default_factory=list)
+    exclude_seniority: list[str] = Field(default_factory=list)
     company: str | None = None
     exclude_companies: list[str] = Field(default_factory=list)
 
     def is_empty(self) -> bool:
         return not any([self.location, self.remote is not None, self.seniority,
-                        self.company, self.exclude_companies])
+                        self.exclude_seniority, self.company, self.exclude_companies])
 
 
 class Hit(BaseModel):
@@ -83,9 +90,24 @@ def allowed_ids(conn: sqlite3.Connection, filters: Filters | None) -> set[str] |
         where.append("remote = ?")
         params.append(int(filters.remote))
     if filters.seniority:
-        marks = ",".join("?" * len(filters.seniority))
-        where.append(f"seniority IN ({marks})")
-        params += filters.seniority
+        named = [s for s in filters.seniority if s != MID]
+        parts = []
+        if named:
+            parts.append(f"seniority IN ({','.join('?' * len(named))})")
+            params += named
+        if MID in filters.seniority:
+            parts.append("seniority IS NULL")
+        where.append("(" + " OR ".join(parts) + ")")
+    if filters.exclude_seniority:
+        named = [s for s in filters.exclude_seniority if s != MID]
+        if named:
+            # NULL means mid-level, and NOT IN never matches NULL, so keep it
+            # explicitly or every mid-level role would be excluded too.
+            where.append(f"(seniority IS NULL OR seniority NOT IN "
+                         f"({','.join('?' * len(named))}))")
+            params += named
+        if MID in filters.exclude_seniority:
+            where.append("seniority IS NOT NULL")
     if filters.company:
         where.append("LOWER(company) LIKE ?")
         params.append(f"%{filters.company.lower()}%")
@@ -148,26 +170,57 @@ class Searcher:
         self.conn, self.store, self.embedder = conn, store, embedder
 
     def rank_ids(self, query: str, k: int = 10, mode: str = "hybrid",
-                 filters: Filters | None = None) -> list[tuple[str, float, list[str]]]:
+                 filters: Filters | None = None,
+                 max_per_company: int | None = None) -> list[tuple[str, float, list[str]]]:
         ids = allowed_ids(self.conn, filters)
         pool = max(k, POOL)
         if mode == "bm25":
             ranking = bm25_rank(self.conn, query, pool, ids)
-            return [(j, 1.0 / (RRF_K + i), ["bm25"]) for i, j in enumerate(ranking, 1)][:k]
-        if mode == "dense":
+            ranked = [(j, 1.0 / (RRF_K + i), ["bm25"]) for i, j in enumerate(ranking, 1)]
+        elif mode == "dense":
             ranking = dense_rank(self.store, self.embedder, query, pool, ids)
-            return [(j, 1.0 / (RRF_K + i), ["dense"]) for i, j in enumerate(ranking, 1)][:k]
-        fused = rrf({
-            "bm25": bm25_rank(self.conn, query, pool, ids),
-            "dense": dense_rank(self.store, self.embedder, query, pool, ids),
-        })
-        return fused[:k]
+            ranked = [(j, 1.0 / (RRF_K + i), ["dense"]) for i, j in enumerate(ranking, 1)]
+        else:
+            ranked = rrf({
+                "bm25": bm25_rank(self.conn, query, pool, ids),
+                "dense": dense_rank(self.store, self.embedder, query, pool, ids),
+            })
+        if max_per_company:
+            ranked = self._diversify(ranked, k, max_per_company)
+        return ranked[:k]
+
+    def _diversify(self, ranked, k: int, cap: int):
+        """Limit how much of the list one employer can take.
+
+        Pure relevance ranking has no notion of variety, and a large company
+        with many similar postings will fill the whole page -- three of four
+        results from one employer is a worse shortlist than three employers,
+        even if it scores better. Capped entries are not discarded, just
+        pushed below the ones that add a new company.
+        """
+        companies: dict[str, int] = {}
+        kept, overflow = [], []
+        for item in ranked:
+            job = db.get_job(self.conn, item[0])
+            name = (job.company if job else "").lower()
+            if companies.get(name, 0) < cap:
+                companies[name] = companies.get(name, 0) + 1
+                kept.append(item)
+            else:
+                overflow.append(item)
+            if len(kept) >= k:
+                break
+        return kept + overflow
+
+    def search_diverse(self, query: str, k: int = 10, **kw) -> list["Hit"]:
+        return self.search(query, k, max_per_company=2, **kw)
 
     def search(self, query: str, k: int = 10, mode: str = "hybrid",
-               filters: Filters | None = None) -> list[Hit]:
+               filters: Filters | None = None,
+               max_per_company: int | None = None) -> list[Hit]:
         hits = []
         for rank, (job_id, score, found_by) in enumerate(
-            self.rank_ids(query, k, mode, filters), start=1
+            self.rank_ids(query, k, mode, filters, max_per_company), start=1
         ):
             job = db.get_job(self.conn, job_id)
             if job:
