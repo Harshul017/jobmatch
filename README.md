@@ -1,10 +1,12 @@
 # JobMatch
 
-Search engine over ~7,000 live job listings, pulled from public job-board APIs.
-Combines keyword search with embeddings and measures whether the combination
-actually helps.
+Search engine and LLM agent over ~7,000 live job listings, pulled from public
+job-board APIs. Combines keyword search with embeddings, and measures whether
+the combination actually helps rather than assuming it does.
 
-Work in progress.
+Work in progress. Retrieval, the agent, the API and the UI all work; the
+relevance judgements behind the evaluation numbers are not yet verified
+against a human, so no retrieval metric is quoted here yet.
 
 ## Setup
 
@@ -28,7 +30,13 @@ python -m jobmatch.query "backend engineer working on search" --compare
 fusion so you can see where they disagree.
 
 Other flags: `--location india`, `--remote`, `--seniority intern`,
-`--mode bm25|dense|hybrid`, `--store qdrant`.
+`--mode bm25|dense|hybrid`, `--diverse 2` (cap results per company),
+`--company`, `--store qdrant`.
+
+```bash
+python -m jobmatch.chat          # talk to the agent
+uvicorn jobmatch.api:app         # web UI and API on localhost:8000
+```
 
 Edit `companies.txt` to change what gets indexed. The resolver tries plausible
 slugs against each ATS and saves hits to `data/slugs.json`. If a company
@@ -160,7 +168,7 @@ A single-page UI is served at `/`, and interactive API docs at `/docs`.
 
 ## Deploying
 
-The working index is ~117MB, nearly all of it full job descriptions that the
+The working index is ~122MB, nearly all of it full job descriptions that the
 app never shows. `prepare_deploy` writes a trimmed copy — descriptions cut to
 what the API actually returns, expired rows dropped, vacuumed, with matching
 vectors.
@@ -227,14 +235,28 @@ turn. Unlike the unit tests this calls the real model, so it costs requests.
 pytest
 ```
 
-131 tests, run on 3.11 and 3.12 in CI. Vector stores are tested against both backends with the same suite.
-Embedding is stubbed with a hashing embedder and the LLM with a scripted one,
+166 tests, run on 3.11 and 3.12 in CI. Vector stores are tested against both
+backends with the same suite. Embedding is stubbed with a hashing embedder and the LLM with a scripted one,
 so the tests need no model download, no API key and no network. The agent
 tests mostly cover failure: malformed arguments, unknown tools, invented
 citations, runaway tool loops.
 
+## Known gaps
+
+- **The evaluation labels are model-judged and unverified.** `autolabel
+  --verify` exists for exactly this; until it has been run, the retrieval
+  comparison is not trustworthy. An earlier run showed why: the three
+  retrievers ranked in a completely different order once the judge was shown
+  the role text instead of the company boilerplate at the top of each
+  posting. The code did not change. The judgements did.
+- Seniority is single-label, so "Senior Engineering Manager" is classified as
+  management and escapes a filter that excludes senior. It should be
+  multi-label: a role can be both.
+- Some aggregator feeds carry agency names rather than employers, so a
+  handful of listings show a recruiter where the company should be.
+- Not deployed yet. `render.yaml` is ready.
+
 ## Still to do
 
 - Reranker over the fused top-k
-- Scheduled re-ingestion
-- Web UI
+- Scheduled re-ingestion so the index refreshes without being asked
